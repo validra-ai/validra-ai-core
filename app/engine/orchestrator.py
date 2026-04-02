@@ -72,8 +72,8 @@ class Orchestrator:
                     "id": f"tc-{idx:03}",
                     "description": test.get("description"),
                     "request": {
-                        "payload": payload,
                         "headers": test_headers if test_headers is not None else request.get("headers", {}),
+                        "body": payload,                
                     },
                     "response": response,
                     "success": success,
@@ -116,8 +116,8 @@ class Orchestrator:
                 "id": f"tc-{idx:03}",
                 "description": test.get("description"),
                 "request": {
-                    "payload": payload,
                     "headers": test_headers if test_headers is not None else request.get("headers", {}),
+                    "body": payload,
                 },
                 "response": response,
                 "success": success,
