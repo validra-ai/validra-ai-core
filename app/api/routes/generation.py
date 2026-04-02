@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 
 from app.api.schemas.requests import TestRequest
 from app.engine.orchestrator import Orchestrator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Execution"])
 
@@ -64,6 +68,7 @@ def generate_and_run(request: TestRequest, req: Request):
         tests = orchestrator.generate(safe_input, request.max_cases)
         tests = tests[: request.max_cases]
     except Exception as e:
+        logger.exception("Error generating test cases")
         raise HTTPException(status_code=500, detail=f"Error generating test cases: {str(e)}")
 
     if not tests:
@@ -78,10 +83,11 @@ def generate_and_run(request: TestRequest, req: Request):
             "method": request.method,
             "headers": request.headers,
             "validate": request.validate,
-            "meta": request.payload_meta or {},  # FIX #1: pass meta so validator receives constraints
+            "meta": request.payload_meta or {},
         }
         results = orchestrator.run(safe_request, tests)
     except Exception as e:
+        logger.exception("Error executing test cases")
         raise HTTPException(status_code=500, detail=f"Error executing test cases: {str(e)}")
 
     return results

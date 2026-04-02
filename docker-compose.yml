@@ -7,7 +7,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OLLAMA_URL=http://ollama:11434/api/generate
+      - OLLAMA_URL=http://host.docker.internal:11434/api/generate
     volumes:
       - .:/app
     restart: unless-stopped

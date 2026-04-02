@@ -59,7 +59,6 @@ class TestRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "summary": "Ollama",
                     "endpoint": "https://jsonplaceholder.typicode.com/posts",
                     "method": "POST",
                     "headers": {"Content-Type": "application/json"},
@@ -83,7 +82,6 @@ class TestRequest(BaseModel):
                     },
                 },
                 {
-                    "summary": "OpenAI",
                     "endpoint": "https://jsonplaceholder.typicode.com/posts",
                     "method": "POST",
                     "headers": {"Content-Type": "application/json"},
@@ -101,7 +99,6 @@ class TestRequest(BaseModel):
                     },
                 },
                 {
-                    "summary": "Anthropic",
                     "endpoint": "https://jsonplaceholder.typicode.com/posts",
                     "method": "POST",
                     "headers": {"Content-Type": "application/json"},

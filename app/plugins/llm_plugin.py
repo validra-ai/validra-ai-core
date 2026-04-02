@@ -26,6 +26,27 @@ class LLMBasePlugin(BasePlugin):
         json_str = response[start : end + 1]
 
         # Sanitize JS expressions LLMs sometimes emit instead of literal values
+
+        # "prefix" + new Array(N).join("sep")  →  expand to a literal string
+        def _expand_concat(m):
+            prefix, n, sep = m.group(1), int(m.group(2)), m.group(3)
+            return json.dumps(prefix + sep * max(n - 1, 0))
+
+        json_str = re.sub(
+            r'"([^"]*)"\s*\+\s*new\s+Array\((\d+)\)\.join\("([^"]*)"\)',
+            _expand_concat,
+            json_str,
+        )
+        # new Array(N).join("sep")  →  expand to a literal string
+        def _expand_array_join(m):
+            n, sep = int(m.group(1)), m.group(2)
+            return json.dumps(sep * max(n - 1, 0))
+
+        json_str = re.sub(
+            r'new\s+Array\((\d+)\)\.join\("([^"]*)"\)',
+            _expand_array_join,
+            json_str,
+        )
         json_str = re.sub(
             r"new\s+Array\(\d+\)\.fill\([^\)]*\)\.join\([^\)]*\)",
             '"INVALID_STRING"',

@@ -1,9 +1,14 @@
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+logger = logging.getLogger("validra")
 
 from app.api.routes import generation, validation
 from app.engine.executor import Executor
@@ -50,6 +55,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(generation.router)
     app.include_router(validation.router)
@@ -69,6 +81,11 @@ def create_app() -> FastAPI:
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
         return FileResponse("app/static/favicon.ico")
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(_req: Request, exc: Exception):
+        logger.error("Unhandled exception:\n%s", traceback.format_exc())
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     return app
 
