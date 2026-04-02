@@ -77,6 +77,8 @@ Each test case MUST include:
 
 ====================================================
 OUTPUT FORMAT EXAMPLE
+REMEMBER: All string values must be written out fully as literals.
+NEVER write: "a" + "a".repeat(21) or "a".repeat(21) — write the actual characters.
 
 [
   {{
@@ -92,6 +94,14 @@ OUTPUT FORMAT EXAMPLE
     "payload": {{
       "body": "Testing",
       "title": "",
+      "userId": 30
+    }}
+  }},
+  {{
+    "description": "Title too long",
+    "payload": {{
+      "body": "Testing",
+      "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "userId": 30
     }}
   }}

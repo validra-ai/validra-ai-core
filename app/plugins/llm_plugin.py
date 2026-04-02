@@ -53,6 +53,26 @@ class LLMBasePlugin(BasePlugin):
             json_str,
         )
         json_str = re.sub(r"new\s+\w+\(.*?\)", '"INVALID_STRING"', json_str)
+        # "prefix" + "str".repeat(N)  →  literal string
+        def _expand_str_repeat(m):
+            prefix, s, n = m.group(1), m.group(2), int(m.group(3))
+            return json.dumps(prefix + s * n)
+
+        json_str = re.sub(
+            r'"([^"]*)"\s*\+\s*"([^"]*)"\s*\.repeat\((\d+)\)',
+            _expand_str_repeat,
+            json_str,
+        )
+        # "str".repeat(N)  →  literal string
+        def _expand_repeat(m):
+            s, n = m.group(1), int(m.group(2))
+            return json.dumps(s * n)
+
+        json_str = re.sub(
+            r'"([^"]*)"\s*\.repeat\((\d+)\)',
+            _expand_repeat,
+            json_str,
+        )
         json_str = re.sub(r"\.repeat\(\d+\)", "", json_str)
         json_str = re.sub(r"\bundefined\b", "null", json_str)
 

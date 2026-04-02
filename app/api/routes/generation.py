@@ -1,6 +1,8 @@
+import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 
 from app.api.schemas.requests import TestRequest
 from app.engine.orchestrator import Orchestrator
@@ -13,7 +15,13 @@ router = APIRouter(tags=["Execution"])
 @router.post("/generateAndRun", summary="Generates Test Cases and Run")
 def generate_and_run(request: TestRequest, req: Request):
     """
-    Generate and execute automated API tests.
+    Generate and execute automated API tests, streaming results via SSE.
+
+    Events emitted:
+    - `{"phase": "generating"}` — LLM is generating test cases
+    - `{"phase": "running", "progress": N, "total": T, "result": {...}}` — one test completed
+    - `{"phase": "done", "summary": {...}}` — all tests finished
+    - `{"phase": "error", "message": "..."}` — unrecoverable failure
 
     ## Test Types
 
@@ -41,20 +49,24 @@ def generate_and_run(request: TestRequest, req: Request):
     try:
         plugin = plugin_registry.get(request.test_type.upper())
     except KeyError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        def error_stream():
+            yield f"data: {json.dumps({'phase': 'error', 'message': str(e)})}\n\n"
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     try:
         provider = provider_registry.get(request.provider.lower())
     except KeyError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        def error_stream():
+            yield f"data: {json.dumps({'phase': 'error', 'message': str(e)})}\n\n"
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
 
-    # Merge user overrides on top of settings-based defaults, then validate
-    # via the provider's own config class — unknown keys raise 400 (extra="forbid")
     try:
         merged = {**provider.default_config().model_dump(), **(request.provider_config or {})}
         provider_config = provider.config_class(**merged)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid provider_config: {e}")
+        def error_stream():
+            yield f"data: {json.dumps({'phase': 'error', 'message': f'Invalid provider_config: {e}'})}\n\n"
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     orchestrator = Orchestrator(plugin, executor, validator, provider, provider_config)
 
@@ -64,30 +76,64 @@ def generate_and_run(request: TestRequest, req: Request):
         "meta": request.payload_meta or {},
     }
 
-    try:
-        tests = orchestrator.generate(safe_input, request.max_cases)
-        tests = tests[: request.max_cases]
-    except Exception as e:
-        logger.exception("Error generating test cases")
-        raise HTTPException(status_code=500, detail=f"Error generating test cases: {str(e)}")
+    safe_request = {
+        "endpoint": request.endpoint,
+        "method": request.method,
+        "headers": request.headers,
+        "validate": request.validate,
+        "meta": request.payload_meta or {},
+    }
 
-    if not tests:
-        raise HTTPException(
-            status_code=500,
-            detail="No test cases were generated. LLM may be unavailable or returned invalid output.",
-        )
+    def event_stream():
+        # Phase 1: Warming up (instant feedback to the client)
+        yield f"data: {json.dumps({'phase': 'warming_up'})}\n\n"
 
-    try:
-        safe_request = {
-            "endpoint": request.endpoint,
-            "method": request.method,
-            "headers": request.headers,
-            "validate": request.validate,
-            "meta": request.payload_meta or {},
+        # Phase 2: Generate all test cases (single LLM call)
+        yield f"data: {json.dumps({'phase': 'generating'})}\n\n"
+
+        try:
+            tests = orchestrator.generate(safe_input, request.max_cases)
+            tests = tests[: request.max_cases]
+        except Exception as e:
+            logger.exception("Error generating test cases")
+            yield f"data: {json.dumps({'phase': 'error', 'message': f'Error generating test cases: {e}'})}\n\n"
+            return
+
+        if not tests:
+            yield f"data: {json.dumps({'phase': 'error', 'message': 'No test cases were generated. LLM may be unavailable or returned invalid output.'})}\n\n"
+            return
+
+        # Phase 3+4: Execute and validate each test, yielding granular step events
+        results = []
+        try:
+            for step in orchestrator.run_stream(safe_request, tests):
+                event = step["event"]
+                if event in ("executing", "validating"):
+                    yield f"data: {json.dumps({'phase': event, 'progress': step['progress'], 'total': step['total']})}\n\n"
+                elif event == "result":
+                    results.append(step["result"])
+                    yield f"data: {json.dumps({'phase': 'result', 'progress': step['progress'], 'total': step['total'], 'result': step['result']}, default=str)}\n\n"
+        except Exception as e:
+            logger.exception("Error executing test cases")
+            yield f"data: {json.dumps({'phase': 'error', 'message': f'Error executing test cases: {e}'})}\n\n"
+            return
+
+        # Phase 5: Final summary
+        success_count = sum(1 for r in results if r["success"])
+        total_duration = sum(r["duration_ms"] for r in results)
+        summary = {
+            "total": len(results),
+            "success": success_count,
+            "failed": len(results) - success_count,
+            "total_duration_ms": total_duration,
         }
-        results = orchestrator.run(safe_request, tests)
-    except Exception as e:
-        logger.exception("Error executing test cases")
-        raise HTTPException(status_code=500, detail=f"Error executing test cases: {str(e)}")
+        yield f"data: {json.dumps({'phase': 'done', 'summary': summary})}\n\n"
 
-    return results
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

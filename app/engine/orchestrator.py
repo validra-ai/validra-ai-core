@@ -30,6 +30,58 @@ class Orchestrator:
             provider_config=self.provider_config,
         )
 
+    def run_stream(self, request: dict, tests: list):
+        """Generator yielding typed step events for each test.
+
+        Event shapes:
+          {"event": "executing",  "progress": N, "total": T}
+          {"event": "validating", "progress": N, "total": T}
+          {"event": "result",     "progress": N, "total": T, "result": {...}}
+        """
+        validate_enabled = request.get("validate", True)
+        meta = request.get("meta", {})
+        total = len(tests)
+
+        for idx, test in enumerate(tests, start=1):
+            payload = test.get("payload", {})
+            test_headers = test.get("headers")
+
+            yield {"event": "executing", "progress": idx, "total": total}
+
+            start = time.time()
+            response = self.executor.execute(request, payload, headers=test_headers)
+            duration = int((time.time() - start) * 1000)
+            success = 200 <= response.get("status_code", 500) < 300
+
+            validation_result = None
+            if validate_enabled:
+                yield {"event": "validating", "progress": idx, "total": total}
+                validation_result = self.validator.validate(
+                    test=test,
+                    response=response,
+                    meta=meta,
+                    provider=self.provider,
+                    provider_config=self.provider_config,
+                )
+
+            yield {
+                "event": "result",
+                "progress": idx,
+                "total": total,
+                "result": {
+                    "id": f"tc-{idx:03}",
+                    "description": test.get("description"),
+                    "request": {
+                        "payload": payload,
+                        "headers": test_headers if test_headers is not None else request.get("headers", {}),
+                    },
+                    "response": response,
+                    "success": success,
+                    "duration_ms": duration,
+                    "validation": validation_result,
+                },
+            }
+
     def run(self, request: dict, tests: list) -> dict:
         validate_enabled = request.get("validate", True)
         meta = request.get("meta", {})
