@@ -1,5 +1,7 @@
 import json
 import logging
+import threading
+import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -73,6 +75,10 @@ def generate_and_run(request: TestRequest, req: Request):
 
     orchestrator = Orchestrator(plugin, executor, validator, provider, provider_config)
 
+    run_id = str(uuid.uuid4())
+    stop_event = threading.Event()
+    req.app.state.active_runs[run_id] = stop_event
+
     safe_input = {
         "payload": request.payload,
         "headers": request.headers,
@@ -88,8 +94,14 @@ def generate_and_run(request: TestRequest, req: Request):
     }
 
     def event_stream():
+        try:
+            yield from _event_stream()
+        finally:
+            req.app.state.active_runs.pop(run_id, None)
+
+    def _event_stream():
         # Phase 1: Warming up (instant feedback to the client)
-        yield f"data: {json.dumps({'phase': 'warming_up'})}\n\n"
+        yield f"data: {json.dumps({'phase': 'warming_up', 'run_id': run_id})}\n\n"
 
         # Phase 2: Generate all test cases (single LLM call)
         yield f"data: {json.dumps({'phase': 'generating'})}\n\n"
@@ -109,13 +121,16 @@ def generate_and_run(request: TestRequest, req: Request):
         # Phase 3+4: Execute and validate each test, yielding granular step events
         results = []
         try:
-            for step in orchestrator.run_stream(safe_request, tests):
+            for step in orchestrator.run_stream(safe_request, tests, stop_event=stop_event):
                 event = step["event"]
                 if event in ("executing", "validating"):
                     yield f"data: {json.dumps({'phase': event, 'progress': step['progress'], 'total': step['total']})}\n\n"
                 elif event == "result":
                     results.append(step["result"])
                     yield f"data: {json.dumps({'phase': 'result', 'progress': step['progress'], 'total': step['total'], 'result': step['result']}, default=str)}\n\n"
+                elif event == "cancelled":
+                    yield f"data: {json.dumps({'phase': 'cancelled', 'progress': step['progress'], 'total': step['total']})}\n\n"
+                    return
         except Exception as e:
             logger.exception("Error executing test cases")
             yield f"data: {json.dumps({'phase': 'error', 'message': f'Error executing test cases: {e}'})}\n\n"

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 
 
 _PROVIDER_CONFIG_DESCRIPTION = """
@@ -34,7 +34,7 @@ Per-request provider overrides. Fields depend on the selected provider:
 
 class TestRequest(BaseModel):
     endpoint: str
-    method: str
+    method: Literal["POST", "PUT", "PATCH"] = "POST"
     headers: dict = {}
     payload: dict
     payload_meta: Optional[Dict[str, Any]] = None

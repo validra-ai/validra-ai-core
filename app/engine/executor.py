@@ -13,8 +13,10 @@ class Executor:
         try:
             if method == "POST":
                 response = requests.post(url, json=payload, headers=headers, timeout=timeout)
-            elif method == "GET":
-                response = requests.get(url, params=payload, headers=headers, timeout=timeout)
+            elif method == "PUT":
+                response = requests.put(url, json=payload, headers=headers, timeout=timeout)
+            elif method == "PATCH":
+                response = requests.patch(url, json=payload, headers=headers, timeout=timeout)
             else:
                 raise Exception(f"Unsupported HTTP method: {method}")
 

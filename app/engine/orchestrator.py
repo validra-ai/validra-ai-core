@@ -30,26 +30,32 @@ class Orchestrator:
             provider_config=self.provider_config,
         )
 
-    def run_stream(self, request: dict, tests: list):
+    def run_stream(self, request: dict, tests: list, stop_event=None):
         """Generator yielding typed step events for each test.
 
         Event shapes:
           {"event": "executing",  "progress": N, "total": T}
           {"event": "validating", "progress": N, "total": T}
           {"event": "result",     "progress": N, "total": T, "result": {...}}
+          {"event": "cancelled",  "progress": N, "total": T}
         """
         validate_enabled = request.get("validate", True)
         meta = request.get("meta", {})
         total = len(tests)
 
         for idx, test in enumerate(tests, start=1):
+            if stop_event and stop_event.is_set():
+                yield {"event": "cancelled", "progress": idx - 1, "total": total}
+                return
+
             payload = test.get("payload", {})
             test_headers = test.get("headers")
+            effective_headers = test_headers if test_headers is not None else request.get("headers", {})
 
             yield {"event": "executing", "progress": idx, "total": total}
 
             start = time.time()
-            response = self.executor.execute(request, payload, headers=test_headers)
+            response = self.executor.execute(request, payload, headers=effective_headers)
             duration = int((time.time() - start) * 1000)
             success = 200 <= response.get("status_code", 500) < 300
 
@@ -92,9 +98,10 @@ class Orchestrator:
         for idx, test in enumerate(tests, start=1):
             payload = test.get("payload", {})
             test_headers = test.get("headers")
+            effective_headers = test_headers if test_headers is not None else request.get("headers", {})
 
             start = time.time()
-            response = self.executor.execute(request, payload, headers=test_headers)
+            response = self.executor.execute(request, payload, headers=effective_headers)
             duration = int((time.time() - start) * 1000)
             total_duration += duration
 

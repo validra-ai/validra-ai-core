@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger("validra")
 
-from app.api.routes import generation, validation
+from app.api.routes import cancel, generation, validation
 from app.engine.executor import Executor
 from app.plugins.fuzz.plugin import FuzzPlugin
 from app.plugins.pen.plugin import PenTestPlugin
@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     # ── Shared singletons ────────────────────────────────────────────────────
     app.state.executor = Executor()
     app.state.validator = LLMValidator()
+    app.state.active_runs = {}
 
     yield
 
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
     app.include_router(generation.router)
     app.include_router(validation.router)
+    app.include_router(cancel.router)
 
     @app.get("/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
