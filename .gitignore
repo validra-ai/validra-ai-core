@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 *.pyd
 .env
+.claude
 .venv/
 venv/
 env/
