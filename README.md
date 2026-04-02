@@ -16,7 +16,7 @@ AI-powered API test generation and validation engine. Validra uses Large Languag
 
 ## Quick Start
 
-### Install via pip (recommended)
+**Prerequisites**: Python 3.11+
 
 ```bash
 pip install validra
@@ -26,7 +26,7 @@ validra
 The API will be available at `http://localhost:8000`.  
 Swagger UI: `http://localhost:8000/docs`
 
-To use OpenAI or Anthropic, either set your key as an environment variable:
+Validra works out of the box with Ollama as the default provider. To use OpenAI or Anthropic instead, set your key before starting:
 
 ```bash
 OPENAI_API_KEY=sk-... validra
@@ -34,7 +34,7 @@ OPENAI_API_KEY=sk-... validra
 ANTHROPIC_API_KEY=sk-ant-... validra
 ```
 
-Or create a `.env` file in the directory where you run `validra` (copied from `.env.example`):
+Or create a `.env` file in the directory where you run `validra`:
 
 ```bash
 cp .env.example .env
@@ -42,39 +42,7 @@ cp .env.example .env
 validra
 ```
 
-Or pass `api_key` directly in `provider_config` on each request — no environment setup needed.
-
-> To use Ollama locally, install it from [ollama.ai](https://ollama.ai), run `ollama serve`, and Validra will connect automatically.
-
----
-
-## Docker Setup (alternative)
-
-**Prerequisites**: Docker and Docker Compose
-
-**Using Ollama (local LLM):**
-
-```bash
-docker-compose --profile ollama up
-```
-
-**Using OpenAI or Anthropic:**
-
-```bash
-OPENAI_API_KEY=sk-... docker-compose up
-# or
-ANTHROPIC_API_KEY=sk-ant-... docker-compose up
-```
-
-Alternatively, copy `.env.example` to `.env` and set your keys there:
-
-```bash
-cp .env.example .env
-# edit .env, then:
-docker-compose up
-```
-
-> On first run with `--profile ollama`, startup may take a few minutes while Ollama pulls the default model (`llama3:8b-instruct-q4_0`).
+> **Using Ollama?** Install it from [ollama.ai](https://ollama.ai) and run `ollama serve`. Validra connects to it automatically — no extra configuration needed.
 
 ---
 
@@ -86,27 +54,20 @@ There are two ways to configure behaviour, each suited to different needs:
 
 ### 1. Environment variables (`.env`) — persistent, server-level config
 
-Use a `.env` file (or real environment variables) for things that are fixed for your deployment:
+Use a `.env` file (or real environment variables) for things that are fixed for your setup:
 
 | Variable | Default | When to set |
 |---|---|---|
 | `DEFAULT_PROVIDER` | `ollama` | Change if you always want OpenAI or Anthropic |
-| `OLLAMA_URL` | `http://localhost:11434/api/generate` | Required when running Ollama in Docker (`http://ollama:11434/api/generate`) |
+| `OLLAMA_URL` | `http://localhost:11434/api/generate` | Only if Ollama runs on a non-default address |
 | `OPENAI_API_KEY` | — | Required to use the OpenAI provider |
 | `ANTHROPIC_API_KEY` | — | Required to use the Anthropic provider |
 | `EXECUTOR_TIMEOUT` | `60` | Increase if your target API is slow |
-
-Everything else — model name, temperature, max tokens, timeouts — has a working default in code. You only need `.env` if you want to change those persistent values or set secrets.
 
 ```env
 # Minimal .env for OpenAI users
 DEFAULT_PROVIDER=openai
 OPENAI_API_KEY=sk-...
-```
-
-```env
-# Minimal .env for Docker + Ollama
-OLLAMA_URL=http://ollama:11434/api/generate
 ```
 
 `.env` is completely optional. If you pass `api_key` directly in `provider_config` on each request, you don't need a `.env` file at all.
@@ -115,7 +76,7 @@ OLLAMA_URL=http://ollama:11434/api/generate
 
 ### 2. `provider_config` in the request — per-request overrides
 
-Use `provider_config` when you want to change provider behaviour for a specific call without touching server config. Any field from the provider's config can be overridden:
+Use `provider_config` when you want to change provider behaviour for a specific call without touching server config:
 
 ```json
 {
@@ -129,11 +90,6 @@ Use `provider_config` when you want to change provider behaviour for a specific 
   }
 }
 ```
-
-This is useful when:
-- You want to test with a different model for one request
-- You're calling the API from a client that manages its own keys (no `.env` on the server)
-- You want to tune temperature/tokens for a specific test type
 
 Unknown fields in `provider_config` are rejected with a `400` error.
 
@@ -395,21 +351,8 @@ validra-ai-core/
 │   ├── validator/
 │   │   └── llm_validator.py       # LLM-based response validator
 │   └── main.py                    # App factory & startup
-├── docker-compose.yml
-├── Dockerfile.api
-├── Dockerfile.ollama
+├── tests/                         # Test suite
+├── .github/workflows/             # CI + PyPI publish
 ├── requirements.txt
 └── .env.example
-```
-
----
-
-## Stopping & Cleanup
-
-```bash
-# Stop containers
-docker-compose down
-
-# If using the ollama profile, remove model data to free disk space
-docker volume rm validra-core-refactored_ollama_data
 ```
