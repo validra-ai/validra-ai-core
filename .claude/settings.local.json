@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//Users/robertopegoraro/git/validra-ai/**)",
-      "Bash(zip -r validra-ai-ui.zip validra-ai-ui/ --exclude \"validra-ai-ui/node_modules/*\" --exclude \"validra-ai-ui/dist/*\")"
-    ]
-  }
-}
