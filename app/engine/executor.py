@@ -11,7 +11,9 @@ class Executor:
         timeout = settings.executor_timeout
 
         try:
-            if method == "POST":
+            if method == "GET":
+                response = requests.get(url, params=payload, headers=headers, timeout=timeout)
+            elif method == "POST":
                 response = requests.post(url, json=payload, headers=headers, timeout=timeout)
             elif method == "PUT":
                 response = requests.put(url, json=payload, headers=headers, timeout=timeout)

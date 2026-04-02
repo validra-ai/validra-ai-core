@@ -152,7 +152,7 @@ Generates test cases and executes them against a target API endpoint.
 | `payload_meta` | object | no | Field constraints for smarter test generation |
 | `test_type` | string | yes | Plugin to use: `FUZZ`, `AUTH`, or `PEN` |
 | `max_cases` | integer | no | Number of test cases to generate (3–100, default: 10) |
-| `validate` | boolean | no | Run LLM validation on responses (default: `true`) |
+| `run_validation` | boolean | no | Run LLM validation on responses (default: `true`) |
 | `provider` | string | no | LLM provider: `ollama`, `openai`, `anthropic` (default: `ollama`) |
 | `provider_config` | object | no | Override provider settings for this request only |
 

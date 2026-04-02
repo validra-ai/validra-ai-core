@@ -45,7 +45,7 @@ class TestRequest(BaseModel):
         le=100,
         description="Maximum number of test cases to generate (3-100)",
     )
-    validate: bool = True
+    run_validation: bool = True
     provider: str = Field(
         default="ollama",
         description="LLM provider: ollama | openai | anthropic",
@@ -70,7 +70,7 @@ class TestRequest(BaseModel):
                     },
                     "test_type": "FUZZ",
                     "max_cases": 10,
-                    "validate": True,
+                    "run_validation": True,
                     "provider": "ollama",
                     "provider_config": {
                         "model": "llama3:8b-instruct-q4_0",
@@ -88,7 +88,7 @@ class TestRequest(BaseModel):
                     "payload": {"title": "Validra Test", "body": "Testing fuzzy payload generation", "userId": 30},
                     "test_type": "FUZZ",
                     "max_cases": 10,
-                    "validate": True,
+                    "run_validation": True,
                     "provider": "openai",
                     "provider_config": {
                         "api_key": "sk-...",
@@ -105,7 +105,7 @@ class TestRequest(BaseModel):
                     "payload": {"title": "Validra Test", "body": "Testing fuzzy payload generation", "userId": 30},
                     "test_type": "FUZZ",
                     "max_cases": 10,
-                    "validate": True,
+                    "run_validation": True,
                     "provider": "anthropic",
                     "provider_config": {
                         "api_key": "sk-ant-...",

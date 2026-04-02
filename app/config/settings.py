@@ -1,8 +1,11 @@
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     default_provider: str = "ollama"
     executor_timeout: int = 60
 
@@ -12,10 +15,6 @@ class Settings(BaseSettings):
     # Secrets — no defaults, must be set to use that provider
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 settings = Settings()

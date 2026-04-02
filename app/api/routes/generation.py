@@ -89,7 +89,7 @@ def generate_and_run(request: TestRequest, req: Request):
         "endpoint": request.endpoint,
         "method": request.method,
         "headers": request.headers,
-        "validate": request.validate,
+        "validate": request.run_validation,
         "meta": request.payload_meta or {},
     }
 
