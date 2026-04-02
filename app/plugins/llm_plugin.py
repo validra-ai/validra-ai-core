@@ -79,7 +79,22 @@ class LLMBasePlugin(BasePlugin):
         return json.loads(json_str)
 
     @abstractmethod
-    def _build_prompt(self, example, previous_cases, batch_size, meta=None) -> str:
+    def _build_system_prompt(self) -> str:
+        """Return the static system instructions (role, rules, output format).
+
+        This is sent as a cacheable system message to supported providers,
+        so it should contain everything that does NOT change between batches.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _build_user_prompt(self, example, previous_cases_summary: list[str], batch_size: int, meta=None) -> str:
+        """Return the dynamic user message (schema, meta, batch size, previous cases).
+
+        previous_cases_summary contains only the 'description' strings of
+        already-generated cases — just enough to prevent duplicates without
+        bloating the context.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -105,13 +120,21 @@ class LLMBasePlugin(BasePlugin):
 
         all_cases = previous_cases.copy()
 
+        # The system prompt is static across all batches — cached by Anthropic.
+        system = self._build_system_prompt()
+
         while len(all_cases) < max_cases:
             remaining = max_cases - len(all_cases)
             batch_size = min(3, remaining)
-            prompt = self._build_prompt(example, all_cases, batch_size, meta)
+
+            # Send only descriptions as the duplicate-prevention list to keep
+            # context small. Full case objects would grow O(N) per batch.
+            previous_descriptions = [c.get("description", "") for c in all_cases]
+
+            prompt = self._build_user_prompt(example, previous_descriptions, batch_size, meta)
 
             try:
-                raw = provider.complete(prompt, provider_config)
+                raw = provider.complete(prompt, provider_config, system=system)
                 print("RAW LLM OUTPUT:\n", raw)
 
                 new_cases = self._extract_json(raw)

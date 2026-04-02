@@ -3,8 +3,8 @@ from app.providers.base import BaseProviderConfig
 
 
 class OpenAIConfig(BaseProviderConfig):
-    model: str = "gpt-4o"
-    temperature: float = 0.7
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.3
     max_tokens: int = 700
     timeout: int = 60
     api_key: Optional[str] = None

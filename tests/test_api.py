@@ -30,7 +30,7 @@ BASE_GENERATE_PAYLOAD = {
     "payload": {"username": "test", "age": 25},
     "test_type": "FUZZ",
     "max_cases": 3,
-    "validate": False,
+    "run_validation": False,
     "provider": "ollama",
 }
 
@@ -129,3 +129,72 @@ def test_validate_happy_path(client):
     body = response.json()
     assert body["validation"]["dstatus"] == "PASS"
     assert body["validation"]["confidence"] == 0.95
+
+
+# ── Generation result cache ──────────────────────────────────────────────────
+
+def test_generate_cache_hit_skips_llm_on_second_identical_request(client):
+    """Submitting the same (plugin, payload, meta, max_cases) twice must only
+    call provider.complete for generation on the first request; the second
+    request is served from the in-process cache."""
+    import app.api.routes.generation as gen_module
+
+    fake_cases = json.dumps([
+        {"description": "missing field", "payload": {"username": None, "age": 25}},
+        {"description": "negative age",  "payload": {"username": "test", "age": -1}},
+        {"description": "empty string",  "payload": {"username": "", "age": 25}},
+    ])
+    fake_response = {"status_code": 422, "body": {"error": "invalid"}}
+
+    provider = client.app.state.provider_registry.get("ollama")
+    executor = client.app.state.executor
+
+    # Clear the cache so this test is independent of run order
+    with gen_module._cache_lock:
+        gen_module._cache.clear()
+
+    with (
+        patch.object(provider, "complete", return_value=fake_cases) as mock_complete,
+        patch.object(executor, "execute", return_value=fake_response),
+    ):
+        client.post("/generateAndRun", json={**BASE_GENERATE_PAYLOAD, "run_validation": False})
+        first_call_count = mock_complete.call_count
+
+        client.post("/generateAndRun", json={**BASE_GENERATE_PAYLOAD, "run_validation": False})
+        second_call_count = mock_complete.call_count
+
+    assert first_call_count > 0, "First request must call the LLM"
+    assert second_call_count == first_call_count, "Second identical request must be served from cache"
+
+
+def test_generate_cache_miss_on_different_payload(client):
+    """Changing any part of the payload must produce a cache miss."""
+    import app.api.routes.generation as gen_module
+
+    fake_cases = json.dumps([
+        {"description": "missing field", "payload": {"username": None, "age": 25}},
+        {"description": "negative age",  "payload": {"username": "test", "age": -1}},
+        {"description": "empty string",  "payload": {"username": "", "age": 25}},
+    ])
+    fake_response = {"status_code": 422, "body": {"error": "invalid"}}
+
+    provider = client.app.state.provider_registry.get("ollama")
+    executor = client.app.state.executor
+
+    with gen_module._cache_lock:
+        gen_module._cache.clear()
+
+    payload_a = {**BASE_GENERATE_PAYLOAD, "payload": {"username": "a", "age": 1}, "run_validation": False}
+    payload_b = {**BASE_GENERATE_PAYLOAD, "payload": {"username": "b", "age": 2}, "run_validation": False}
+
+    with (
+        patch.object(provider, "complete", return_value=fake_cases) as mock_complete,
+        patch.object(executor, "execute", return_value=fake_response),
+    ):
+        client.post("/generateAndRun", json=payload_a)
+        after_first = mock_complete.call_count
+
+        client.post("/generateAndRun", json=payload_b)
+        after_second = mock_complete.call_count
+
+    assert after_second > after_first, "Different payload must trigger a new LLM call"

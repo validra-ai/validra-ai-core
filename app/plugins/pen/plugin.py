@@ -14,12 +14,8 @@ class PenTestPlugin(LLMBasePlugin):
             and len(case["payload"]) > 0
         )
 
-    def _build_prompt(self, example, previous_cases, batch_size, meta=None):
-        return f"""
-You are a senior penetration tester specializing in API security.
-
-TASK:
-Generate up to {batch_size} realistic penetration test cases to identify API vulnerabilities.
+    def _build_system_prompt(self) -> str:
+        return """You are a senior penetration tester specializing in API security.
 
 STRICT OUTPUT RULES:
 - Return ONLY a valid JSON array
@@ -37,18 +33,18 @@ IMPORTANT:
 
 FORMAT:
 [
-  {{
+  {
     "description": "...",
-    "payload": {{}}
-  }}
+    "payload": {}
+  }
 ]
 
 TEST STRATEGIES:
 
 1. Injection Probes (SAFE)
 - SQL-like: "' OR '1'='1"
-- NoSQL-like: {{ "$ne": null }}
-- Template-like: "{{{{7*7}}}}"
+- NoSQL-like: { "$ne": null }
+- Template-like: "{{7*7}}"
 
 2. Privilege Escalation Attempts
 - "role": "admin", "isAdmin": true, "permissions": ["*"]
@@ -71,11 +67,22 @@ TEST STRATEGIES:
 GUIDELINES:
 - Keep payload realistic (similar structure)
 - Do NOT break JSON validity
-- Each case should represent a clear attack idea
+- Each case should represent a clear attack idea"""
 
-Previous cases:
-{json.dumps(previous_cases, indent=2)}
+    def _build_user_prompt(self, example, previous_cases_summary: list[str], batch_size: int, meta=None) -> str:
+        return f"""TASK: Generate EXACTLY {batch_size} realistic penetration test cases to identify API vulnerabilities. No more, no fewer.
 
 INPUT:
-{json.dumps(example["payload"], indent=2)}
-"""
+{json.dumps(example.get("payload", example), indent=2)}
+
+META CONSTRAINTS:
+{json.dumps(meta or {}, indent=2)}
+
+UNIQUENESS RULE:
+If a META field mentions "unique", "random", or "generate random", produce a different
+realistic value for that field in every test case (e.g. distinct emails, usernames).
+
+ALREADY GENERATED (descriptions only — do NOT duplicate these scenarios):
+{json.dumps(previous_cases_summary, indent=2)}
+
+Output the JSON array now."""

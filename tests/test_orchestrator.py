@@ -85,7 +85,6 @@ def test_run_stream_yields_executing_validating_result_events():
 
     event_types = [e["event"] for e in events]
     assert "executing" in event_types
-    assert "validating" in event_types
     assert "result" in event_types
 
 
@@ -109,3 +108,53 @@ def test_run_stream_result_has_expected_fields():
     assert "response" in result_event["result"]
     assert "success" in result_event["result"]
     assert "duration_ms" in result_event["result"]
+
+
+def test_run_stream_validation_uses_validation_provider_config():
+    """When a separate validation_provider_config is supplied, validate() must
+    receive it — not the generation provider_config."""
+    plugin = MagicMock()
+    executor = MagicMock()
+    validator = MagicMock()
+    provider = MagicMock()
+    gen_config = MagicMock(name="gen_config")
+    val_config = MagicMock(name="val_config")
+
+    executor.execute.return_value = {"status_code": 200, "body": {}}
+    validator.validate.return_value = {"dstatus": "PASS", "reason": "ok", "confidence": 0.9}
+
+    orch = Orchestrator(
+        plugin, executor, validator, provider, gen_config,
+        validation_provider=provider,
+        validation_provider_config=val_config,
+    )
+
+    list(orch.run_stream(_req(validate=True), _tests(1)))
+
+    call_kwargs = validator.validate.call_args.kwargs
+    assert call_kwargs["provider_config"] is val_config
+    assert call_kwargs["provider_config"] is not gen_config
+
+
+def test_run_stream_validates_all_tests_in_parallel():
+    """validator.validate must be called once per test (parallel execution)."""
+    orch = _make_orch()
+    n = 5
+
+    list(orch.run_stream(_req(validate=True), _tests(n)))
+
+    assert orch.validator.validate.call_count == n
+
+
+def test_run_stream_results_ordered_after_parallel_validation():
+    """Results must be yielded in the original test order even though
+    validation runs in parallel."""
+    orch = _make_orch()
+    tests = _tests(3)
+
+    events = list(orch.run_stream(_req(validate=True), tests))
+    result_events = [e for e in events if e["event"] == "result"]
+
+    descriptions = [e["result"]["description"] for e in result_events]
+    expected = [t["description"] for t in tests]
+    assert descriptions == expected

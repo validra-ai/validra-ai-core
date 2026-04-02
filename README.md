@@ -99,24 +99,26 @@ Unknown fields in `provider_config` are rejected with a `400` error.
 
 If neither `.env` nor `provider_config` sets a value, these defaults apply. All fields are overridable via `provider_config` in the request.
 
+> **Automatic model routing** — Validra uses a cheaper/faster model for *generation* and automatically upgrades to a stronger model for *validation*, where reasoning quality matters more. The `model` field in `provider_config` overrides the **generation** model only; the validation model is set independently by the server.
+
 **Ollama**
 
 | Field | Default | Description |
 |---|---|---|
 | `model` | `llama3:8b-instruct-q4_0` | Model identifier |
-| `temperature` | `0.7` | Sampling temperature |
-| `max_tokens` | `700` | Max output tokens |
+| `temperature` | `0.3` | Sampling temperature (lower = more reliable JSON output) |
+| `max_tokens` | `700` | Max output tokens for generation (validation auto-uses 150) |
 | `top_p` | `0.9` | Top-p sampling |
 | `url` | `http://localhost:11434/api/generate` | Ollama API endpoint |
-| `timeout` | `300` | Request timeout in seconds |
+| `timeout` | `600` | Request timeout in seconds |
 
 **OpenAI**
 
 | Field | Default | Description |
 |---|---|---|
-| `model` | `gpt-4o` | Model identifier |
-| `temperature` | `0.7` | Sampling temperature |
-| `max_tokens` | `700` | Max output tokens |
+| `model` | `gpt-4o-mini` | Generation model (validation auto-upgrades to `gpt-4o`) |
+| `temperature` | `0.3` | Sampling temperature |
+| `max_tokens` | `750` | Max output tokens for generation (validation auto-uses 150) |
 | `timeout` | `60` | Request timeout in seconds |
 | `api_key` | — | Required (env or per-request) |
 | `base_url` | `https://api.openai.com/v1/chat/completions` | API endpoint |
@@ -125,13 +127,21 @@ If neither `.env` nor `provider_config` sets a value, these defaults apply. All 
 
 | Field | Default | Description |
 |---|---|---|
-| `model` | `claude-sonnet-4-6` | Model identifier |
-| `temperature` | `0.7` | Sampling temperature |
-| `max_tokens` | `700` | Max output tokens |
+| `model` | `claude-haiku-4-5-20251001` | Generation model (validation auto-upgrades to `claude-sonnet-4-6`) |
+| `temperature` | `0.3` | Sampling temperature |
+| `max_tokens` | `750` | Max output tokens for generation (validation auto-uses 150) |
 | `timeout` | `60` | Request timeout in seconds |
 | `api_key` | — | Required (env or per-request) |
 | `base_url` | `https://api.anthropic.com/v1/messages` | API endpoint |
 | `anthropic_version` | `2023-06-01` | Anthropic API version header |
+
+**Anthropic — prompt caching**
+
+Static prompt sections (role, rules, output format) are automatically sent with `cache_control: ephemeral`. After the first call for a given schema, subsequent generation batches hit the cache at ~10% of normal input-token cost. No configuration needed.
+
+**Result caching**
+
+Generated test cases are cached in-process for 5 minutes, keyed on `(test_type, payload, payload_meta, max_cases)`. Resubmitting the same schema during development or CI skips the LLM generation call entirely.
 
 ---
 
@@ -149,7 +159,7 @@ Generates test cases and executes them against a target API endpoint.
 | `method` | string | yes | `POST` or `GET` |
 | `headers` | object | no | HTTP headers to send (default: `{}`) |
 | `payload` | object | yes | Request body or query params |
-| `payload_meta` | object | no | Field constraints for smarter test generation |
+| `payload_meta` | object | no | Field constraints for smarter test generation (see [Payload Meta guide](#payload_meta)) |
 | `test_type` | string | yes | Plugin to use: `FUZZ`, `AUTH`, or `PEN` |
 | `max_cases` | integer | no | Number of test cases to generate (3–100, default: 10) |
 | `run_validation` | boolean | no | Run LLM validation on responses (default: `true`) |
@@ -206,7 +216,7 @@ Generates test cases and executes them against a target API endpoint.
   "test_type": "PEN",
   "max_cases": 15,
   "provider": "openai",
-  "provider_config": { "model": "gpt-4o-mini", "temperature": 0.9 }
+  "provider_config": { "model": "gpt-4o-mini", "temperature": 0.3 }
 }
 ```
 
@@ -291,6 +301,97 @@ Generates edge-case and invalid payloads to test input validation. Uses `payload
 - String violations (too short, too long, empty)
 
 Best used to verify your API's input validation and error handling.
+
+---
+
+---
+
+## `payload_meta`
+
+`payload_meta` is a plain string-per-field map that tells the LLM what each field means, what values are valid, and how to generate meaningful edge cases. The more precise your meta, the better the generated tests.
+
+Each value is a free-form string — there is no rigid schema. The LLM reads it as natural language. The hints below are the patterns that produce the most reliable results.
+
+---
+
+### Constraint hints
+
+| Pattern | Example | What the LLM does |
+|---|---|---|
+| `required` | `"required"` | Generates a case where the field is `null` or missing |
+| `optional` | `"optional"` | Generates a case where the field is omitted entirely |
+| `alphanumeric` | `"alphanumeric"` | Injects special characters, spaces, symbols |
+| `numeric` | `"numeric"` | Injects strings, booleans, floats when int expected |
+| `[min-max]` | `"[3-20]"` | Generates values below min and above max |
+| `[min-max] chars` | `"[3-20] chars"` | Generates strings shorter and longer than the range |
+| `>= N` / `<= N` | `">= 0"` | Generates boundary values and violations |
+| `enum: A/B/C` | `"Active/Inactive"` | Generates a value outside the allowed set |
+| `valid email format` | `"valid email format"` | Generates malformed emails (missing `@`, no domain, etc.) |
+| `valid url` | `"valid url"` | Generates malformed URLs |
+| `ISO 8601` / `date` | `"ISO 8601 date"` | Generates invalid date strings |
+| `boolean` | `"boolean"` | Injects strings and numbers where bool expected |
+| `unique` | `"unique"` | Uses a different value in every test case |
+| `generate random` | `"generate random for valid"` | Generates a fresh realistic value each time (e.g. random email) |
+
+---
+
+### Combining hints
+
+Multiple hints on one field work together:
+
+```json
+"payload_meta": {
+  "username": "required, alphanumeric, [3-20] chars",
+  "age":      "required, numeric, >= 0, <= 120",
+  "status":   "optional, enum: Active/Inactive",
+  "email":    "required, valid email format, unique, generate random for valid"
+}
+```
+
+This instructs the LLM to:
+- Test `username` with null, too-short, too-long, and special-character values
+- Test `age` with strings, negatives, and values above 120
+- Test `status` with values outside `Active/Inactive`, and omit it entirely in some cases
+- Generate a fresh unique valid email in every test case, plus invalid-format variants
+
+---
+
+### Uniqueness and randomness
+
+Some APIs (e.g. user-creation endpoints) reject duplicate values. Use `unique` and/or `generate random` to ensure valid fields vary across test cases:
+
+```json
+"email": "required, valid email format, unique, generate random for valid"
+```
+
+Without this hint, the LLM may reuse values like `test1@example.com` across cases, causing the API to return `409 Conflict` instead of the error you are testing for.
+
+---
+
+### Full example
+
+```json
+{
+  "endpoint": "https://api.example.com/users",
+  "method": "POST",
+  "payload": {
+    "name": "Alice",
+    "age": 30,
+    "status": "Active",
+    "role": "user",
+    "email": "alice@example.com"
+  },
+  "payload_meta": {
+    "name":   "required, alphanumeric, [3-50] chars",
+    "age":    "required, numeric, [0-120]",
+    "status": "optional, enum: Active/Inactive",
+    "role":   "optional, enum: user/admin/moderator",
+    "email":  "required, valid email format, unique, generate random for valid"
+  },
+  "test_type": "FUZZ",
+  "max_cases": 10
+}
+```
 
 ---
 

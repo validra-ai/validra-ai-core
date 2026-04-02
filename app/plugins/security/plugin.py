@@ -14,12 +14,8 @@ class SecurityPlugin(LLMBasePlugin):
             and case["payload"] != {}
         )
 
-    def _build_prompt(self, example, previous_cases, batch_size, meta=None):
-        return f"""
-You are a senior QA engineer specialized in API security testing.
-
-TASK:
-Generate up to {batch_size} security-focused test cases for authentication and authorization validation.
+    def _build_system_prompt(self) -> str:
+        return """You are a senior QA engineer specialized in API security testing.
 
 STRICT OUTPUT RULES:
 - Return ONLY a valid JSON array
@@ -37,22 +33,30 @@ IMPORTANT:
 
 FORMAT:
 [
-  {{
+  {
     "description": "...",
-    "headers": {{}},
+    "headers": {},
     "payload": <same as input payload>
-  }}
+  }
 ]
 
 GUIDELINES:
 - Focus on Authorization header issues
 - Include missing, malformed, or incorrect tokens
 - Simulate expired or invalid tokens
-- Include edge cases
+- Include edge cases"""
 
-Previous cases:
-{json.dumps(previous_cases, indent=2)}
+    def _build_user_prompt(self, example, previous_cases_summary: list[str], batch_size: int, meta=None) -> str:
+        return f"""TASK: Generate EXACTLY {batch_size} security-focused test cases for authentication and authorization validation. No more, no fewer.
 
 INPUT:
 {json.dumps(example, indent=2)}
-"""
+
+UNIQUENESS RULE:
+If any field in the payload mentions "unique", "random", or "generate random" in the
+meta constraints, produce a different realistic value for it in every test case.
+
+ALREADY GENERATED (descriptions only — do NOT duplicate these scenarios):
+{json.dumps(previous_cases_summary, indent=2)}
+
+Output the JSON array now."""

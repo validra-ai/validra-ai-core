@@ -1,7 +1,10 @@
+import hashlib
 import json
 import logging
 import threading
+import time
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -12,6 +15,53 @@ from app.engine.orchestrator import Orchestrator
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Execution"])
+
+# ── Simple in-process result cache ────────────────────────────────────────────
+# Keyed on (plugin_type, payload, meta, max_cases).  TTL = 5 minutes.
+# Prevents redundant LLM calls when the same schema is submitted repeatedly
+# during development or CI runs.
+_CACHE_TTL = 300  # seconds
+_CACHE_MAX = 200  # max entries before oldest are evicted
+
+_cache: dict[str, tuple[list, float]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_key(plugin_type: str, payload: dict, meta: dict, max_cases: int) -> str:
+    data = json.dumps(
+        {"type": plugin_type, "payload": payload, "meta": meta, "max": max_cases},
+        sort_keys=True,
+    )
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+def _cache_get(key: str) -> list | None:
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and (time.time() - entry[1]) < _CACHE_TTL:
+            return entry[0]
+        if entry:
+            del _cache[key]
+    return None
+
+
+def _cache_set(key: str, tests: list) -> None:
+    with _cache_lock:
+        if len(_cache) >= _CACHE_MAX:
+            # Evict the oldest entry
+            oldest = min(_cache, key=lambda k: _cache[k][1])
+            del _cache[oldest]
+        _cache[key] = (tests, time.time())
+
+
+# ── Validation-specific model overrides ────────────────────────────────────────
+# Validation requires stronger reasoning than generation, so we use Sonnet
+# instead of the Haiku default that is set in each provider's config.
+_VALIDATION_MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    "anthropic": {"model": "claude-sonnet-4-6", "max_tokens": 150},
+    "openai": {"model": "gpt-4o", "max_tokens": 150},
+    # Ollama: no override — same local model is used for both phases.
+}
 
 
 @router.post("/generateAndRun", summary="Generates Test Cases and Run")
@@ -64,6 +114,7 @@ def generate_and_run(request: TestRequest, req: Request):
             yield f"data: {json.dumps({'phase': 'error', 'message': msg})}\n\n"
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
+    # ── Build generation config (uses provider defaults: Haiku / gpt-4o-mini) ─
     try:
         merged = {**provider.default_config().model_dump(), **(request.provider_config or {})}
         provider_config = provider.config_class(**merged)
@@ -73,7 +124,24 @@ def generate_and_run(request: TestRequest, req: Request):
             yield f"data: {json.dumps({'phase': 'error', 'message': msg})}\n\n"
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
-    orchestrator = Orchestrator(plugin, executor, validator, provider, provider_config)
+    # ── Build validation config (Sonnet / gpt-4o, smaller max_tokens) ─────────
+    val_overrides = _VALIDATION_MODEL_OVERRIDES.get(request.provider.lower(), {})
+    try:
+        val_merged = {**merged, **val_overrides}
+        validation_provider_config = provider.config_class(**val_merged)
+    except Exception:
+        # If override fails for any reason, fall back to generation config
+        validation_provider_config = provider_config
+
+    orchestrator = Orchestrator(
+        plugin,
+        executor,
+        validator,
+        provider,
+        provider_config,
+        validation_provider=provider,
+        validation_provider_config=validation_provider_config,
+    )
 
     run_id = str(uuid.uuid4())
     stop_event = threading.Event()
@@ -103,27 +171,39 @@ def generate_and_run(request: TestRequest, req: Request):
         # Phase 1: Warming up (instant feedback to the client)
         yield f"data: {json.dumps({'phase': 'warming_up', 'run_id': run_id})}\n\n"
 
-        # Phase 2: Generate all test cases (single LLM call)
+        # Phase 2: Generate all test cases (check cache first)
         yield f"data: {json.dumps({'phase': 'generating'})}\n\n"
 
-        try:
-            tests = orchestrator.generate(safe_input, request.max_cases)
-            tests = tests[: request.max_cases]
-        except Exception as e:
-            logger.exception("Error generating test cases")
-            yield f"data: {json.dumps({'phase': 'error', 'message': f'Error generating test cases: {e}'})}\n\n"
-            return
+        cache_key = _cache_key(
+            request.test_type.upper(),
+            request.payload,
+            request.payload_meta or {},
+            request.max_cases,
+        )
+        tests = _cache_get(cache_key)
+
+        if tests is not None:
+            logger.info("generation cache hit — skipping LLM generation call")
+        else:
+            try:
+                tests = orchestrator.generate(safe_input, request.max_cases)
+                tests = tests[: request.max_cases]
+                _cache_set(cache_key, tests)
+            except Exception as e:
+                logger.exception("Error generating test cases")
+                yield f"data: {json.dumps({'phase': 'error', 'message': f'Error generating test cases: {e}'})}\n\n"
+                return
 
         if not tests:
             yield f"data: {json.dumps({'phase': 'error', 'message': 'No test cases were generated. LLM may be unavailable or returned invalid output.'})}\n\n"
             return
 
-        # Phase 3+4: Execute and validate each test, yielding granular step events
+        # Phase 3+4: Execute (sequential) then validate (parallel), yield results
         results = []
         try:
             for step in orchestrator.run_stream(safe_request, tests, stop_event=stop_event):
                 event = step["event"]
-                if event in ("executing", "validating"):
+                if event == "executing":
                     yield f"data: {json.dumps({'phase': event, 'progress': step['progress'], 'total': step['total']})}\n\n"
                 elif event == "result":
                     results.append(step["result"])

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class BaseProviderConfig(BaseModel):
     model: str
-    temperature: float = 0.7
+    temperature: float = 0.3
     max_tokens: int = 700
 
     model_config = {"extra": "forbid"}
@@ -16,8 +16,16 @@ class BaseLLMProvider(ABC):
     config_class: ClassVar[type] = BaseProviderConfig
 
     @abstractmethod
-    def complete(self, prompt: str, config: BaseProviderConfig) -> str:
-        """Send prompt to LLM and return raw text response."""
+    def complete(self, prompt: str, config: BaseProviderConfig, system: str | None = None) -> str:
+        """Send prompt to LLM and return raw text response.
+
+        Args:
+            prompt: The user/dynamic part of the prompt.
+            config: Provider-specific configuration.
+            system: Optional static system instructions. When supported by the
+                    provider (Anthropic) this is sent as a cacheable system
+                    message, significantly reducing costs on repeated calls.
+        """
         raise NotImplementedError
 
     @abstractmethod

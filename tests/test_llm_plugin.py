@@ -6,7 +6,10 @@ from app.plugins.llm_plugin import LLMBasePlugin
 class _Plugin(LLMBasePlugin):
     name = "test"
 
-    def _build_prompt(self, example, previous_cases, batch_size, meta=None):
+    def _build_system_prompt(self) -> str:
+        return ""
+
+    def _build_user_prompt(self, example, previous_cases_summary, batch_size, meta=None) -> str:
         return ""
 
     def _is_valid_case(self, case):
@@ -82,3 +85,46 @@ def test_generate_raises_without_provider():
 def test_generate_raises_without_provider_config():
     with pytest.raises(ValueError, match="provider_config must be supplied"):
         plugin.generate(example={}, provider=object(), provider_config=None)
+
+
+def test_generate_passes_system_prompt_to_provider():
+    """generate() must forward the static system prompt as a kwarg to provider.complete."""
+    from unittest.mock import MagicMock
+    provider = MagicMock()
+    config = MagicMock()
+    provider.complete.return_value = '[{"description": "t", "payload": {"x": 1}}]'
+
+    plugin.generate(example={"x": 0}, max_cases=1, provider=provider, provider_config=config)
+
+    _, kwargs = provider.complete.call_args
+    assert "system" in kwargs
+
+
+def test_generate_sends_descriptions_not_full_cases_to_second_batch(monkeypatch):
+    """Previous cases are passed as description strings only, not full objects.
+    This keeps context size flat instead of growing O(N) per batch.
+    """
+    from unittest.mock import MagicMock
+    captured_summaries: list = []
+
+    original_build = _Plugin._build_user_prompt
+
+    def spy_build(self, example, previous_cases_summary, batch_size, meta=None):
+        captured_summaries.append(list(previous_cases_summary))
+        return original_build(self, example, previous_cases_summary, batch_size, meta)
+
+    monkeypatch.setattr(_Plugin, "_build_user_prompt", spy_build)
+
+    provider = MagicMock()
+    config = MagicMock()
+    provider.complete.side_effect = [
+        '[{"description": "first case", "payload": {"x": 1}}]',
+        '[{"description": "second case", "payload": {"x": 2}}]',
+    ]
+
+    plugin.generate(example={"x": 0}, max_cases=2, provider=provider, provider_config=config)
+
+    # Second batch call must receive the description string of the first case,
+    # not the full {"description": ..., "payload": ...} object.
+    assert len(captured_summaries) >= 2
+    assert captured_summaries[1] == ["first case"]

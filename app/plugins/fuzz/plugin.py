@@ -13,12 +13,8 @@ class FuzzPlugin(LLMBasePlugin):
             and isinstance(case["payload"], dict)
         )
 
-    def _build_prompt(self, example, previous_cases, batch_size, meta):
-        return f"""
-You are a senior QA engineer specialized in API testing.
-
-TASK:
-Generate up to {batch_size} diverse NEGATIVE and edge test cases.
+    def _build_system_prompt(self) -> str:
+        return """You are a senior QA engineer specialized in API testing.
 
 ====================================================
 CRITICAL INSTRUCTIONS (MUST FOLLOW STRICTLY)
@@ -54,20 +50,6 @@ BAD:  "title": "a".repeat(51)
 GOOD: "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 ====================================================
-META USAGE
-====================================================
-
-META describes constraints for each field in the payload.
-
-{json.dumps(meta, indent=2)}
-
-Use META to generate invalid and edge cases such as:
-- Required fields -> missing, null, empty
-- Numeric ranges -> below min, above max
-- String constraints -> too short, too long
-- Type mismatches
-
-====================================================
 TEST CASE REQUIREMENTS
 ====================================================
 
@@ -81,56 +63,60 @@ REMEMBER: All string values must be written out fully as literals.
 NEVER write: "a" + "a".repeat(21) or "a".repeat(21) — write the actual characters.
 
 [
-  {{
+  {
     "description": "Body missing",
-    "payload": {{
+    "payload": {
       "body": null,
       "title": "Validra Test",
       "userId": 30
-    }}
-  }},
-  {{
+    }
+  },
+  {
     "description": "Title too short",
-    "payload": {{
+    "payload": {
       "body": "Testing",
       "title": "",
       "userId": 30
-    }}
-  }},
-  {{
+    }
+  },
+  {
     "description": "Title too long",
-    "payload": {{
+    "payload": {
       "body": "Testing",
       "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "userId": 30
-    }}
-  }}
+    }
+  }
 ]
 
 ====================================================
 STRICT RULES
 ====================================================
 
+- Generate EXACTLY the number of cases requested — not more, not fewer
 - Do NOT repeat previous cases
 - Generate only negative and edge cases
 - Do NOT include headers
 - Do NOT include any fields outside payload
 - Do NOT include code or explanations
-- Keep outputs diverse
+- Keep outputs diverse"""
 
-====================================================
-INPUT PAYLOAD
-====================================================
+    def _build_user_prompt(self, example, previous_cases_summary: list[str], batch_size: int, meta=None) -> str:
+        return f"""TASK: Generate EXACTLY {batch_size} diverse NEGATIVE and edge test cases. No more, no fewer.
 
+META CONSTRAINTS (use to drive invalid/edge values):
+{json.dumps(meta or {}, indent=2)}
+
+UNIQUENESS RULE:
+If a META field mentions "unique", "random", or "generate random", you MUST produce a
+different realistic value for that field in every test case. Never reuse values like
+test1@, test2@. Use realistic-looking random values (e.g. "alice.morgan42@example.com",
+"dev.user_9x@mail.co").
+
+INPUT PAYLOAD:
 {json.dumps(example, indent=2)}
 
-====================================================
-PREVIOUS CASES (DO NOT DUPLICATE)
-====================================================
+ALREADY GENERATED (descriptions only — do NOT duplicate these scenarios):
+{json.dumps(previous_cases_summary, indent=2)}
 
-{json.dumps(previous_cases, indent=2)}
-
-====================================================
-END OF INSTRUCTIONS
-====================================================
-"""
+Output the JSON array now."""

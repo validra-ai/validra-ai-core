@@ -3,32 +3,38 @@ from typing import Optional, Dict, Any, Literal
 
 
 _PROVIDER_CONFIG_DESCRIPTION = """
-Per-request provider overrides. Fields depend on the selected provider:
+Per-request provider overrides. Fields depend on the selected provider.
+
+Validra uses **automatic model routing**: a fast/cheap model for generation,
+and a stronger model for validation. The `model` field overrides generation only.
 
 **ollama**
 - `model` (str) — default: `llama3:8b-instruct-q4_0`
-- `temperature` (float) — default: `0.7`
-- `max_tokens` (int) — default: `700`
+- `temperature` (float) — default: `0.3` (keep ≤ 0.3 for reliable JSON output)
+- `max_tokens` (int) — default: `700` (generation); validation auto-uses `150`
 - `top_p` (float) — default: `0.9`
 - `url` (str) — default: `http://localhost:11434/api/generate`
-- `timeout` (int, seconds) — default: `300`
+- `timeout` (int, seconds) — default: `600`
 
 **openai**
-- `model` (str) — default: `gpt-4o`
-- `temperature` (float) — default: `0.7`
-- `max_tokens` (int) — default: `700`
+- `model` (str) — default: `gpt-4o-mini` (generation); validation auto-upgrades to `gpt-4o`
+- `temperature` (float) — default: `0.3`
+- `max_tokens` (int) — default: `700`; validation auto-uses `150`
 - `timeout` (int, seconds) — default: `60`
 - `api_key` (str) — required
 - `base_url` (str) — default: `https://api.openai.com/v1/chat/completions`
 
 **anthropic**
-- `model` (str) — default: `claude-sonnet-4-6`
-- `temperature` (float) — default: `0.7`
-- `max_tokens` (int) — default: `700`
+- `model` (str) — default: `claude-haiku-4-5-20251001` (generation); validation auto-upgrades to `claude-sonnet-4-6`
+- `temperature` (float) — default: `0.3`
+- `max_tokens` (int) — default: `700`; validation auto-uses `150`
 - `timeout` (int, seconds) — default: `60`
 - `api_key` (str) — required
 - `base_url` (str) — default: `https://api.anthropic.com/v1/messages`
 - `anthropic_version` (str) — default: `2023-06-01`
+
+Prompt caching is enabled automatically for Anthropic — static instructions are
+cached after the first call, reducing input-token costs by ~90% on subsequent batches.
 """.strip()
 
 
@@ -74,10 +80,10 @@ class TestRequest(BaseModel):
                     "provider": "ollama",
                     "provider_config": {
                         "model": "llama3:8b-instruct-q4_0",
-                        "temperature": 0.5,
+                        "temperature": 0.3,
                         "top_p": 0.9,
                         "max_tokens": 700,
-                        "timeout": 300,
+                        "timeout": 600,
                         "url": "http://localhost:11434/api/generate",
                     },
                 },
@@ -92,8 +98,8 @@ class TestRequest(BaseModel):
                     "provider": "openai",
                     "provider_config": {
                         "api_key": "sk-...",
-                        "model": "gpt-4o",
-                        "temperature": 0.7,
+                        "model": "gpt-4o-mini",
+                        "temperature": 0.3,
                         "max_tokens": 700,
                         "timeout": 60,
                     },
@@ -109,8 +115,8 @@ class TestRequest(BaseModel):
                     "provider": "anthropic",
                     "provider_config": {
                         "api_key": "sk-ant-...",
-                        "model": "claude-sonnet-4-6",
-                        "temperature": 0.7,
+                        "model": "claude-haiku-4-5-20251001",
+                        "temperature": 0.3,
                         "max_tokens": 700,
                         "timeout": 60,
                     },

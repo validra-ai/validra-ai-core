@@ -4,6 +4,35 @@ from typing import Optional
 
 from app.validator.base import BaseValidator
 
+_VALIDATOR_SYSTEM = """You are an expert API test validator.
+
+Your job is to determine if the API response satisfies the intent of the test case.
+
+EVALUATION INSTRUCTIONS:
+- Use the test description as the primary source of intent.
+- Evaluate whether the API behaved correctly.
+- Consider:
+  - Whether invalid inputs were rejected
+  - Whether valid inputs were accepted
+  - Whether the response matches expected behavior
+  - Whether errors are appropriate or unexpected
+- Meta constraints are additional context to guide your reasoning.
+
+OUTPUT FORMAT (STRICT JSON ONLY):
+- Output MUST be a single JSON object
+- No explanations outside JSON
+- No markdown or code blocks
+- The response must start with { and end with }
+- Keep the "reason" field concise (1-3 sentences)
+
+Return:
+
+{
+  "dstatus": "PASS | FAIL | WARN",
+  "reason": "Brief explanation",
+  "confidence": 0.0
+}"""
+
 
 class LLMValidator(BaseValidator):
 
@@ -22,14 +51,7 @@ class LLMValidator(BaseValidator):
 
         meta = meta or {}
 
-        prompt = f"""
-You are an expert API test validator.
-
-Your job is to determine if the API response satisfies the intent of the test case.
-
----
-
-TEST DESCRIPTION:
+        prompt = f"""TEST DESCRIPTION:
 {test.get("description")}
 
 TEST PAYLOAD:
@@ -41,40 +63,10 @@ META CONSTRAINTS (for context only):
 API RESPONSE:
 {json.dumps(response, indent=2)}
 
----
-
-EVALUATION INSTRUCTIONS:
-
-- Use the test description as the primary source of intent.
-- Evaluate whether the API behaved correctly.
-- Consider:
-  - Whether invalid inputs were rejected
-  - Whether valid inputs were accepted
-  - Whether the response matches expected behavior
-  - Whether errors are appropriate or unexpected
-- Meta constraints are additional context to guide your reasoning.
-
----
-
-OUTPUT FORMAT (STRICT JSON ONLY):
-
-- Output MUST be a single JSON object
-- No explanations outside JSON
-- No markdown or code blocks
-- The response must start with {{ and end with }}
-- Keep the "reason" field concise (1-3 sentences)
-
-Return:
-
-{{
-  "dstatus": "PASS | FAIL | WARN",
-  "reason": "Brief explanation",
-  "confidence": 0.0
-}}
-"""
+Evaluate and return the JSON object."""
 
         try:
-            raw = provider.complete(prompt, provider_config)
+            raw = provider.complete(prompt, provider_config, system=_VALIDATOR_SYSTEM)
             return self._extract_json(raw)
         except Exception as e:
             return {
@@ -106,8 +98,6 @@ Return:
                     raw = part
                     break
 
-        # FIX #5: use outermost braces (find/rfind) instead of non-greedy .*?
-        # Non-greedy would grab the first small {} before the real object
         start = raw.find("{")
         end = raw.rfind("}")
 
