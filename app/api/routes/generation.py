@@ -49,23 +49,26 @@ def generate_and_run(request: TestRequest, req: Request):
     try:
         plugin = plugin_registry.get(request.test_type.upper())
     except KeyError as e:
+        msg = str(e)
         def error_stream():
-            yield f"data: {json.dumps({'phase': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'phase': 'error', 'message': msg})}\n\n"
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     try:
         provider = provider_registry.get(request.provider.lower())
     except KeyError as e:
+        msg = str(e)
         def error_stream():
-            yield f"data: {json.dumps({'phase': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'phase': 'error', 'message': msg})}\n\n"
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     try:
         merged = {**provider.default_config().model_dump(), **(request.provider_config or {})}
         provider_config = provider.config_class(**merged)
     except Exception as e:
+        msg = f"Invalid provider_config: {e}"
         def error_stream():
-            yield f"data: {json.dumps({'phase': 'error', 'message': f'Invalid provider_config: {e}'})}\n\n"
+            yield f"data: {json.dumps({'phase': 'error', 'message': msg})}\n\n"
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     orchestrator = Orchestrator(plugin, executor, validator, provider, provider_config)

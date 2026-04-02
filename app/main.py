@@ -1,6 +1,7 @@
 import logging
 import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,7 +63,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    _static_dir = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
     app.include_router(generation.router)
     app.include_router(validation.router)
 
@@ -80,7 +82,7 @@ def create_app() -> FastAPI:
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
-        return FileResponse("app/static/favicon.ico")
+        return FileResponse(str(Path(__file__).parent / "static" / "favicon.ico"))
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_req: Request, exc: Exception):

@@ -10,15 +10,49 @@ AI-powered API test generation and validation engine. Validra uses Large Languag
 - **3 LLM providers**: Ollama (local), OpenAI, Anthropic — switchable per-request
 - **End-to-end pipeline**: Generate → Execute → Validate, all in one request
 - **LLM-powered validation**: Responses are assessed by the LLM with PASS/FAIL/WARN + confidence score
-- **Stateless API**: No database, minimal dependencies, Docker-ready
+- **Stateless API**: No database, minimal dependencies — install via `pip install validra`
 
 ---
 
-## Quick Start (Docker — Recommended)
+## Quick Start
+
+### Install via pip (recommended)
+
+```bash
+pip install validra
+validra
+```
+
+The API will be available at `http://localhost:8000`.  
+Swagger UI: `http://localhost:8000/docs`
+
+To use OpenAI or Anthropic, either set your key as an environment variable:
+
+```bash
+OPENAI_API_KEY=sk-... validra
+# or
+ANTHROPIC_API_KEY=sk-ant-... validra
+```
+
+Or create a `.env` file in the directory where you run `validra` (copied from `.env.example`):
+
+```bash
+cp .env.example .env
+# edit .env, then:
+validra
+```
+
+Or pass `api_key` directly in `provider_config` on each request — no environment setup needed.
+
+> To use Ollama locally, install it from [ollama.ai](https://ollama.ai), run `ollama serve`, and Validra will connect automatically.
+
+---
+
+## Docker Setup (alternative)
 
 **Prerequisites**: Docker and Docker Compose
 
-**Using Ollama (local):**
+**Using Ollama (local LLM):**
 
 ```bash
 docker-compose --profile ollama up
@@ -40,35 +74,7 @@ cp .env.example .env
 docker-compose up
 ```
 
-The API will be available at `http://localhost:8000`.  
-Swagger UI: `http://localhost:8000/docs`
-
 > On first run with `--profile ollama`, startup may take a few minutes while Ollama pulls the default model (`llama3:8b-instruct-q4_0`).
-
----
-
-## Local Setup (Without Docker)
-
-**Prerequisites**: Python 3.11+, [Ollama](https://ollama.ai) installed locally
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Start Ollama in another terminal
-ollama serve
-
-# 3. Start the API
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-To use OpenAI or Anthropic instead, pass the key as an env var:
-
-```bash
-OPENAI_API_KEY=sk-... uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-Or pass `api_key` in `provider_config` on each request — no environment setup needed.
 
 ---
 
@@ -364,7 +370,7 @@ Best used to find security weaknesses in your API's logic.
 ## Project Structure
 
 ```
-validra-core-refactored/
+validra-ai-core/
 ├── app/
 │   ├── api/
 │   │   ├── routes/
